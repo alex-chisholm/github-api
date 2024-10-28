@@ -2,6 +2,7 @@ from shiny import App, reactive, render, ui
 import urllib3
 import json
 import pandas as pd
+import os
 
 http = urllib3.PoolManager()
 
@@ -37,6 +38,11 @@ def server(input, output, session):
             "User-Agent": "Shiny-App"
         }
         
+        # Add token if available in environment
+        github_token = os.environ.get('GITHUB_TOKEN')
+        if github_token:
+            headers["Authorization"] = f"Bearer {github_token}"
+        
         try:
             response = http.request("GET", url, headers=headers)
             if response.status == 200:
@@ -44,6 +50,13 @@ def server(input, output, session):
                 data = [(repo["name"], repo["language"] or "Not specified") 
                         for repo in repos]
                 return pd.DataFrame(data, columns=["Repository", "Primary Language"])
+            elif response.status == 403:
+                message = "Rate limit exceeded. GitHub allows 60 requests per hour for unauthenticated users."
+                if "X-RateLimit-Remaining" in response.headers:
+                    remaining = response.headers["X-RateLimit-Remaining"]
+                    reset_time = response.headers["X-RateLimit-Reset"]
+                    message += f"\nRemaining requests: {remaining}"
+                return pd.DataFrame({"Error": [message]})
             else:
                 return pd.DataFrame({"Error": [f"Failed to fetch data. Status code: {response.status}"]})
         except Exception as e:
